@@ -9,12 +9,16 @@ public class Player : MonoBehaviour
     private InputAction moveHotkey;
 
     private Rigidbody rb;
-    [SerializeField] private Vector3 moveDirection;
+    private Vector3 moveDirection;
 
-    [SerializeField] float maxspeed;
     [SerializeField] float acceleration;
-    [SerializeField] float maxacceleration;
+    [SerializeField] float maxspeed;
+
     [SerializeField] float turningSpeed;
+    [SerializeField] [Range(0, 10f)] private float driftfactor;
+
+    [SerializeField] private float velocity;
+    private Quaternion playerRotation;
 
     [Space]
     [SerializeField] float speed;
@@ -43,8 +47,9 @@ public class Player : MonoBehaviour
         switch (state)
         {
             case States.normalMovement:
-                Acceleration();
-                Steering();
+                //Acceleration();
+                //KillLateralVelocity();
+                //Steering();
                 break;
         }
     }
@@ -54,6 +59,9 @@ public class Player : MonoBehaviour
         switch (state)
         {
             case States.normalMovement:
+                Acceleration();
+                KillLateralVelocity();
+                //Steering();
                 break;
         }
     }
@@ -71,49 +79,62 @@ public class Player : MonoBehaviour
     {
         if (moveDirection.y == 0)
         {
-            rb.drag = 0.5f;// + rb.velocity.sqrMagnitude / 100;
-            //rb.drag = rb.velocity;
-            //rb.drag = Mathf.Lerp(rb.drag, 3, Time.fixedDeltaTime * 3);
+            speed = Mathf.Lerp(speed, 0, Time.fixedDeltaTime);
         }
         else
         {
-            //rb.drag = acceleration + rb.velocity.sqrMagnitude / 1000;
-            rb.drag = Mathf.Lerp(rb.drag, maxacceleration, Time.fixedDeltaTime * acceleration);
+            if (moveDirection.y > 0)
+            {
+                if (rb.velocity.sqrMagnitude < 0.1f && speed < -1) speed = 1;
+                speed = Mathf.Lerp(speed, maxspeed, Time.fixedDeltaTime * acceleration);
+            }
 
-            speed = Mathf.Sign(moveDirection.y) * ((1 + rb.velocity.sqrMagnitude) / 10);
+            else if (moveDirection.y < 0)
+            {
+                if (rb.velocity.sqrMagnitude < 0.1f && speed > 1) speed = -1;
+                speed = Mathf.Lerp(speed, -maxspeed * 0.5f, Time.fixedDeltaTime * (acceleration * 2));
 
-            if (speed > maxspeed) speed = maxspeed;
-
-            if (moveDirection.y < 0) speed /= 2f;
-            
-            rb.AddForce(transform.forward * (speed + 20), ForceMode.Force);
+            }
+            //if (speed > maxspeed) speed = maxspeed;
+            rb.AddForce(transform.forward * speed, ForceMode.Force);
         }
-
-        //int direction = 1;
-        //if (controls.Player.Accelerate.IsPressed())
-        //{
-        //    rb.AddRelativeForce(new Vector3(Vector3.forward.x, 0, Vector3.forward.z) * (direction* speed));
-        //    rb.drag = Mathf.Lerp(rb.drag, 3, Time.fixedDeltaTime * 3);
-        //}
-        //else if (controls.Player.Break.IsPressed())
-        //{
-        //    rb.AddRelativeForce(new Vector3(Vector3.forward.x, 0, Vector3.forward.z) * (-direction * speed));
-        //    rb.drag = Mathf.Lerp(rb.drag, 3, Time.fixedDeltaTime * 3);
-        //}
-        //else rb.drag = 0.1f + rb.velocity.sqrMagnitude / 100;
-
-
-        //float force = speed * Mathf.Sign(psm.moveDirection.y);
-        //if (moveDirection.y < 0) force /= 2f;
-
-        //rig.AddForce(psm.transform.up * force, ForceMode2D.Force);
-
-        //Vector3 localVelocity = transform.InverseTransformDirection(rb.velocity);
-        //localVelocity.x = 0;
-        //rb.velocity = transform.TransformDirection(localVelocity);
     }
+    void KillLateralVelocity()
+    {
+        if (moveDirection.y > 0) rb.velocity = Vector3.Lerp(rb.velocity.normalized, transform.forward, driftfactor * Time.fixedDeltaTime) * rb.velocity.magnitude;
+        else if (moveDirection.y < 0) rb.velocity = Vector3.Lerp(rb.velocity.normalized, -transform.forward, driftfactor * Time.fixedDeltaTime) * rb.velocity.magnitude;
+
+        //Vector3 forwardVelocity = transform.forward * speed;
+        //Vector3 lateralVelocity = transform.right * Vector3.Dot(rb.velocity, transform.right);
+        //rb.velocity = forwardVelocity + lateralVelocity * driftfactor;
+
+        velocity = rb.velocity.magnitude;
+    }
+
     private void Steering()
     {
-        rb.AddTorque(moveDirection.x * turningSpeed * Vector3.up);
+        float rotation = 0;
+        //if (speed > 1 || speed < -1)
+        {
+            if (moveDirection.x > 0) rotation = turningSpeed;
+            else if (moveDirection.x < 0) rotation = -turningSpeed;
+
+            playerRotation = Quaternion.Euler(transform.eulerAngles.x, transform.eulerAngles.y + rotation, transform.eulerAngles.z);
+            //rb.MoveRotation(playerRotation);
+            // transform.Rotate(Vector3.up * rotation);
+        }
+    }
+    private void LateUpdate()
+    {
+        float rotation = 0;
+        //if (speed > 1 || speed < -1)
+        {
+            if (moveDirection.x > 0) rotation = turningSpeed;
+            else if (moveDirection.x < 0) rotation = -turningSpeed;
+
+            playerRotation = Quaternion.Euler(transform.eulerAngles.x, transform.eulerAngles.y + rotation, transform.eulerAngles.z);
+            // transform.Rotate(Vector3.up * rotation);
+            rb.MoveRotation(playerRotation);
+        }
     }
 }

@@ -22,24 +22,6 @@
                     "processors": "",
                     "interactions": "",
                     "initialStateCheck": false
-                },
-                {
-                    "name": "Accelerate",
-                    "type": "Button",
-                    "id": "993e9250-566c-4c75-9b6b-aad31dd0d949",
-                    "expectedControlType": "Button",
-                    "processors": "",
-                    "interactions": "",
-                    "initialStateCheck": false
-                },
-                {
-                    "name": "Break",
-                    "type": "Button",
-                    "id": "481c040c-e1a7-49fa-9fd7-d04277342534",
-                    "expectedControlType": "Button",
-                    "processors": "",
-                    "interactions": "",
-                    "initialStateCheck": false
                 }
             ],
             "bindings": [
@@ -57,7 +39,7 @@
                 {
                     "name": "up",
                     "id": "3b4a4ca7-a7cd-4016-82ff-ccb595479ee8",
-                    "path": "<Keyboard>/w",
+                    "path": "<Mouse>/leftButton",
                     "interactions": "",
                     "processors": "",
                     "groups": "",
@@ -68,7 +50,7 @@
                 {
                     "name": "down",
                     "id": "c6448af2-8512-4803-90d3-8eb3bfba4faa",
-                    "path": "<Keyboard>/s",
+                    "path": "<Mouse>/rightButton",
                     "interactions": "",
                     "processors": "",
                     "groups": "",
@@ -106,28 +88,6 @@
                     "processors": "",
                     "groups": "",
                     "action": "Jump",
-                    "isComposite": false,
-                    "isPartOfComposite": false
-                },
-                {
-                    "name": "",
-                    "id": "a00441be-6265-4b7a-9ac5-c2af893fbf78",
-                    "path": "<Mouse>/leftButton",
-                    "interactions": "",
-                    "processors": "",
-                    "groups": "",
-                    "action": "Accelerate",
-                    "isComposite": false,
-                    "isPartOfComposite": false
-                },
-                {
-                    "name": "",
-                    "id": "a7c5badc-dcd3-43df-b6d0-2531c66de474",
-                    "path": "<Mouse>/rightButton",
-                    "interactions": "",
-                    "processors": "",
-                    "groups": "",
-                    "action": "Break",
                     "isComposite": false,
                     "isPartOfComposite": false
                 }
