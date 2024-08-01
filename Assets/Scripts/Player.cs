@@ -5,6 +5,8 @@ using UnityEngine.InputSystem;
 
 public class Player : MonoBehaviour
 {
+    public static Player Instance { get; private set; }
+
     private Controls controls;
     private InputAction moveHotkey;
 
@@ -15,10 +17,13 @@ public class Player : MonoBehaviour
     [SerializeField] float maxspeed;
 
     [SerializeField] float turningSpeed;
-    [SerializeField] [Range(0, 10f)] private float driftfactor;
+    [SerializeField] [Range(-1, 10f)] private float driftfactor;
 
     [SerializeField] private float velocity;
     private Quaternion playerRotation;
+    [SerializeField] private float rotationTest;
+    private float angleref;
+    private readonly WaitForFixedUpdate _waitForFixedUpdate = new();
 
     [Space]
     [SerializeField] float speed;
@@ -31,10 +36,18 @@ public class Player : MonoBehaviour
     }
     private void Awake()
     {
+        if (Instance != null)
+        {
+            Destroy(Instance.gameObject);
+        }
+        Instance = this;
+
         controls = new Controls();
         moveHotkey = controls.Player.Move;
 
         rb = GetComponent<Rigidbody>();
+
+        StartCoroutine(LateFixedUpdate());
     }
 
     private void OnEnable()
@@ -47,8 +60,8 @@ public class Player : MonoBehaviour
         switch (state)
         {
             case States.normalMovement:
-                //Acceleration();
-                //KillLateralVelocity();
+                Acceleration();
+                KillLateralVelocity();
                 //Steering();
                 break;
         }
@@ -59,8 +72,8 @@ public class Player : MonoBehaviour
         switch (state)
         {
             case States.normalMovement:
-                Acceleration();
-                KillLateralVelocity();
+                //Acceleration();
+                //KillLateralVelocity();
                 //Steering();
                 break;
         }
@@ -75,11 +88,20 @@ public class Player : MonoBehaviour
         if (moveDirection.y > 0) moveDirection.y = 1;
         else if (moveDirection.y < 0) moveDirection.y = -1;
     }
+
+    private IEnumerator LateFixedUpdate()
+    {
+        while (true)
+        {
+            yield return _waitForFixedUpdate;
+            Steering();
+        }
+    }
     private void Acceleration()
     {
         if (moveDirection.y == 0)
         {
-            speed = Mathf.Lerp(speed, 0, Time.fixedDeltaTime);
+            speed = Mathf.Lerp(speed, 0, 0.4f * Time.fixedDeltaTime);
         }
         else
         {
@@ -116,25 +138,46 @@ public class Player : MonoBehaviour
         float rotation = 0;
         //if (speed > 1 || speed < -1)
         {
+
             if (moveDirection.x > 0) rotation = turningSpeed;
             else if (moveDirection.x < 0) rotation = -turningSpeed;
 
-            playerRotation = Quaternion.Euler(transform.eulerAngles.x, transform.eulerAngles.y + rotation, transform.eulerAngles.z);
-            //rb.MoveRotation(playerRotation);
-            // transform.Rotate(Vector3.up * rotation);
-        }
-    }
-    private void LateUpdate()
-    {
-        float rotation = 0;
-        //if (speed > 1 || speed < -1)
-        {
-            if (moveDirection.x > 0) rotation = turningSpeed;
-            else if (moveDirection.x < 0) rotation = -turningSpeed;
+            //float angle = Mathf.SmoothDampAngle(transform.eulerAngles.y, transform.eulerAngles.y + rotation, ref angleref, 0.1f);
+            //transform.rotation = Quaternion.Euler(0, angle, 0);
 
-            playerRotation = Quaternion.Euler(transform.eulerAngles.x, transform.eulerAngles.y + rotation, transform.eulerAngles.z);
-            // transform.Rotate(Vector3.up * rotation);
+            //Vector3 newRotation = new Vector3(0, rotation, 0);
+            //Quaternion deltaRotation = Quaternion.Euler(newRotation * Time.fixedDeltaTime);
+            //rb.MoveRotation(rb.rotation * deltaRotation);
+
+            playerRotation = Quaternion.Euler(0, transform.eulerAngles.y + rotation, 0);
             rb.MoveRotation(playerRotation);
+
+            //transform.Rotate(Vector3.up * rotation);
+
+            //transform.rotation = Quaternion.RotateTowards(transform.rotation, playerRotation, rotationTest * Time.deltaTime);
+
+            //transform.rotation = Quaternion.Lerp(transform.rotation, playerRotation, rotationTest * Time.fixedDeltaTime);
         }
     }
+
+        //float rotation = 0;
+        ////if (speed > 1 || speed < -1)
+        //{
+
+        //    if (moveDirection.x > 0) rotation = turningSpeed;
+        //    else if (moveDirection.x < 0) rotation = -turningSpeed;
+
+        //    float angle = Mathf.SmoothDampAngle(transform.eulerAngles.y, transform.eulerAngles.y + rotation, ref angleref, 0.1f);
+        //    transform.rotation = Quaternion.Euler(0, angle, 0);
+
+        //    playerRotation = Quaternion.Euler(transform.eulerAngles.x, transform.eulerAngles.y + rotation, transform.eulerAngles.z);
+
+        //    //rb.MoveRotation(playerRotation);
+
+        //    //transform.Rotate(Vector3.up * rotation);
+
+        //    //transform.rotation = Quaternion.RotateTowards(transform.rotation, playerRotation, rotationTest * Time.deltaTime);
+
+        //    transform.rotation = Quaternion.Lerp(transform.rotation, playerRotation, rotationTest * Time.fixedDeltaTime);
+        //}
 }
