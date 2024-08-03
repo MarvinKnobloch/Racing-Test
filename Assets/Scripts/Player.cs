@@ -13,20 +13,40 @@ public class Player : MonoBehaviour
     private Rigidbody rb;
     private Vector3 moveDirection;
 
-    [SerializeField] float acceleration;
-    [SerializeField] float maxspeed;
+    [Header("SpeedValues")]
+    [SerializeField] private float acceleration;
+    [SerializeField] private float maxspeed;
+    [SerializeField] [Range(0.1f, 4)] private float reduceSpeedIfNoInput;
+    [SerializeField] [Range(0, 1)] private float keepSpeedOnCollision;
 
-    [SerializeField] float turningSpeed;
-    [SerializeField] [Range(-1, 10f)] private float driftfactor;
+    [Header("HandlingValues")]
+    [SerializeField] private float turningSpeed;
+    [SerializeField] private float baseDriftTurningSpeed;
+    [SerializeField] private float minDriftTurningSpeed;
+    [SerializeField] private float maxDriftTurningSpeed;
+    private float baseTurningSpeed;
 
-    [SerializeField] private float velocity;
-    private Quaternion playerRotation;
-    [SerializeField] private float rotationTest;
-    private float angleref;
-    private readonly WaitForFixedUpdate _waitForFixedUpdate = new();
+    [SerializeField] [Range(0, 10f)] private float driftFactor;
+    private float baseDriftFactor;
+
+    [SerializeField] private bool drifting;
+    [SerializeField] private bool driftingLeft;
+
+    [SerializeField] private float driftime;
+    [SerializeField] private float maxDrifttime;
+    [SerializeField] private bool getDriftBoost;
+    [SerializeField] private int driftBoost;
 
     [Space]
     [SerializeField] float speed;
+
+    private Quaternion playerRotation;
+
+    [SerializeField] private bool isGrounded;
+    [SerializeField] private float currentGroundAngle;
+    private Vector3 groundVector;
+    [SerializeField] private LayerMask groundCheckLayer;
+
 
     public States state;
 
@@ -47,7 +67,11 @@ public class Player : MonoBehaviour
 
         rb = GetComponent<Rigidbody>();
 
+        baseDriftFactor = driftFactor;
+        baseTurningSpeed = turningSpeed;
+
         StartCoroutine(LateFixedUpdate());
+
     }
 
     private void OnEnable()
@@ -62,7 +86,6 @@ public class Player : MonoBehaviour
             case States.normalMovement:
                 Acceleration();
                 KillLateralVelocity();
-                //Steering();
                 break;
         }
     }
@@ -72,9 +95,8 @@ public class Player : MonoBehaviour
         switch (state)
         {
             case States.normalMovement:
-                //Acceleration();
-                //KillLateralVelocity();
-                //Steering();
+                GroundCheck();
+                Drift();
                 break;
         }
     }
@@ -93,21 +115,24 @@ public class Player : MonoBehaviour
     {
         while (true)
         {
-            yield return _waitForFixedUpdate;
-            Steering();
+            yield return new WaitForFixedUpdate();
+            if (!drifting) Steering();
+            else DriftSteering();
         }
     }
     private void Acceleration()
     {
         if (moveDirection.y == 0)
         {
-            speed = Mathf.Lerp(speed, 0, 0.4f * Time.fixedDeltaTime);
+            //Mathf.Lerp(speed, 0, reduceSpeed * Time.fixedDeltaTime);
+            //rb.drag = reduceSpeed;
+            speed = Mathf.Lerp(speed, 0, reduceSpeedIfNoInput * Time.fixedDeltaTime);
         }
         else
         {
             if (moveDirection.y > 0)
             {
-                if (rb.velocity.sqrMagnitude < 0.1f && speed < -1) speed = 1;
+                if (rb.velocity.sqrMagnitude < 0.1f && speed < 1) speed = 1;
                 speed = Mathf.Lerp(speed, maxspeed, Time.fixedDeltaTime * acceleration);
             }
 
@@ -117,20 +142,29 @@ public class Player : MonoBehaviour
                 speed = Mathf.Lerp(speed, -maxspeed * 0.5f, Time.fixedDeltaTime * (acceleration * 2));
 
             }
-            //if (speed > maxspeed) speed = maxspeed;
-            rb.AddForce(transform.forward * speed, ForceMode.Force);
         }
+        if (GroundCheck())
+        {
+            isGrounded = true;
+            rb.AddForce(Vector3.ProjectOnPlane(transform.forward, groundVector).normalized * speed, ForceMode.Force);
+            rb.AddForce(-transform.up * 3, ForceMode.Force);
+        }
+        else
+        {
+            isGrounded = false;
+            rb.AddForce(transform.forward * speed, ForceMode.Force);
+            rb.AddForce(-Vector3.up * 10, ForceMode.Force);
+        }
+
     }
     void KillLateralVelocity()
     {
-        if (moveDirection.y > 0) rb.velocity = Vector3.Lerp(rb.velocity.normalized, transform.forward, driftfactor * Time.fixedDeltaTime) * rb.velocity.magnitude;
-        else if (moveDirection.y < 0) rb.velocity = Vector3.Lerp(rb.velocity.normalized, -transform.forward, driftfactor * Time.fixedDeltaTime) * rb.velocity.magnitude;
+        if (moveDirection.y > 0) rb.velocity = Vector3.Lerp(rb.velocity.normalized, transform.forward, driftFactor * Time.fixedDeltaTime) * rb.velocity.magnitude;
+        else if (moveDirection.y < 0) rb.velocity = Vector3.Lerp(rb.velocity.normalized, -transform.forward, driftFactor * Time.fixedDeltaTime) * rb.velocity.magnitude;
 
         //Vector3 forwardVelocity = transform.forward * speed;
         //Vector3 lateralVelocity = transform.right * Vector3.Dot(rb.velocity, transform.right);
         //rb.velocity = forwardVelocity + lateralVelocity * driftfactor;
-
-        velocity = rb.velocity.magnitude;
     }
 
     private void Steering()
@@ -142,6 +176,9 @@ public class Player : MonoBehaviour
             if (moveDirection.x > 0) rotation = turningSpeed;
             else if (moveDirection.x < 0) rotation = -turningSpeed;
 
+            playerRotation = Quaternion.Euler(transform.eulerAngles.x, transform.eulerAngles.y + rotation, transform.eulerAngles.z);
+            rb.MoveRotation(playerRotation);
+
             //float angle = Mathf.SmoothDampAngle(transform.eulerAngles.y, transform.eulerAngles.y + rotation, ref angleref, 0.1f);
             //transform.rotation = Quaternion.Euler(0, angle, 0);
 
@@ -149,8 +186,6 @@ public class Player : MonoBehaviour
             //Quaternion deltaRotation = Quaternion.Euler(newRotation * Time.fixedDeltaTime);
             //rb.MoveRotation(rb.rotation * deltaRotation);
 
-            playerRotation = Quaternion.Euler(0, transform.eulerAngles.y + rotation, 0);
-            rb.MoveRotation(playerRotation);
 
             //transform.Rotate(Vector3.up * rotation);
 
@@ -159,25 +194,89 @@ public class Player : MonoBehaviour
             //transform.rotation = Quaternion.Lerp(transform.rotation, playerRotation, rotationTest * Time.fixedDeltaTime);
         }
     }
+    private void DriftSteering()
+    {
+        float rotation;
+        if (driftingLeft)
+        {
+            if (moveDirection.x > 0) rotation = maxDriftTurningSpeed;
+            else if (moveDirection.x < 0) rotation = minDriftTurningSpeed;
+            else rotation = baseDriftTurningSpeed;
+        }
+        else
+        {
+            if (moveDirection.x > 0) rotation = minDriftTurningSpeed;
+            else if (moveDirection.x < 0) rotation = maxDriftTurningSpeed;
+            else rotation = baseDriftTurningSpeed;
 
-        //float rotation = 0;
-        ////if (speed > 1 || speed < -1)
-        //{
+            rotation *= -1;
+        }
 
-        //    if (moveDirection.x > 0) rotation = turningSpeed;
-        //    else if (moveDirection.x < 0) rotation = -turningSpeed;
+        playerRotation = Quaternion.Euler(0, transform.eulerAngles.y + rotation, 0);
+        rb.MoveRotation(playerRotation);
+    }
+    private void OnCollisionEnter(Collision collision)
+    {
+        //Debug.Log("reduce speed");
+        //speed *= keepSpeedOnCollision;
+    }
+    private void Drift()
+    {
+        if (controls.Player.Drift.WasPerformedThisFrame() && moveDirection.x != 0 && speed > 3)
+        {
+            if (moveDirection.x > 0) driftingLeft = true;
+            else if (moveDirection.x < 0) driftingLeft = false;
+            drifting = true;
+            driftFactor = 0.1f;
+        }
 
-        //    float angle = Mathf.SmoothDampAngle(transform.eulerAngles.y, transform.eulerAngles.y + rotation, ref angleref, 0.1f);
-        //    transform.rotation = Quaternion.Euler(0, angle, 0);
+        if (controls.Player.Drift.WasReleasedThisFrame())
+        {
+            drifting = false;
+            driftime = 0;
 
-        //    playerRotation = Quaternion.Euler(transform.eulerAngles.x, transform.eulerAngles.y + rotation, transform.eulerAngles.z);
+            if (getDriftBoost)
+            {
+                speed += driftBoost;
+                getDriftBoost = false;
+            }
 
-        //    //rb.MoveRotation(playerRotation);
+            StopCoroutine(nameof(ChangeDriftfactor));
+            StartCoroutine(ChangeDriftfactor());
+        }
 
-        //    //transform.Rotate(Vector3.up * rotation);
+        DriftTimerUpdate();
+    }
+    private void DriftTimerUpdate()
+    {
+        if (drifting)
+        {
+            driftime += Time.deltaTime;
+            if (driftime > maxDrifttime)
+            {
+                getDriftBoost = true;
+            }
+        }
+    }
+    private IEnumerator ChangeDriftfactor()
+    {
+        while (driftFactor < baseDriftFactor - 0.2f)
+        {
+            driftFactor = Mathf.Lerp(driftFactor, baseDriftFactor, 0.3f * Time.fixedDeltaTime);
+            //driftFactor += Time.deltaTime * 2;
+            yield return null;
+        }
+        driftFactor = baseDriftFactor;
+    }
+    private bool GroundCheck()
+    {
+        if (Physics.BoxCast(transform.position + transform.up * 0.3f, transform.localScale * 0.5f, -transform.up, out RaycastHit hit, transform.rotation, 5f, groundCheckLayer))
+        {
+            currentGroundAngle = Vector3.Angle(Vector3.up, hit.normal);
+            groundVector = hit.normal;
+            return true;
+        }
+        return false;
+    }
 
-        //    //transform.rotation = Quaternion.RotateTowards(transform.rotation, playerRotation, rotationTest * Time.deltaTime);
-
-        //    transform.rotation = Quaternion.Lerp(transform.rotation, playerRotation, rotationTest * Time.fixedDeltaTime);
-        //}
 }

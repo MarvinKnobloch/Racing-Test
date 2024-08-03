@@ -8,11 +8,7 @@ public class CameraFollow : MonoBehaviour
 
     [SerializeField] private Vector3 offset;
 
-    private void FixedUpdate()
-    {
-        //transform.position = Player.Instance.transform.position;
-        //transform.rotation = Quaternion.Slerp(transform.rotation, Player.Instance.transform.rotation, cameraRotation * Time.deltaTime);
-    }
+
     private void LateUpdate()
     {
         transform.position = Player.Instance.transform.position + offset;
