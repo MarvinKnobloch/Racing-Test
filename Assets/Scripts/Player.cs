@@ -2,57 +2,86 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using System;
 
 public class Player : MonoBehaviour
 {
     public static Player Instance { get; private set; }
 
-    private Controls controls;
+    [NonSerialized] public Controls controls;
     private InputAction moveHotkey;
 
-    private Rigidbody rb;
-    private Vector3 moveDirection;
+    [NonSerialized] public Rigidbody rb;
+    [NonSerialized] public Collider playerCollider;
+    public Vector3 moveDirection;
+    [NonSerialized] public Transform ChildTransform;
+    public float baseGravity;
+    public float maxGravity;
+    public float rotationSpeed;
+
+    [NonSerialized] public float airIntoGroundTime;
 
     [Header("SpeedValues")]
-    [SerializeField] private float acceleration;
-    [SerializeField] private float maxspeed;
-    [SerializeField] [Range(0.1f, 4)] private float reduceSpeedIfNoInput;
-    [SerializeField] [Range(0, 1)] private float keepSpeedOnCollision;
+    public float acceleration;
+
+    public float speed;
+    public float maxspeed;
+    [Range(0.1f, 4)] public float reduceSpeedIfNoInput;
+    [Range(0.1f, 4)] public float boostSpeedReduction;
+    [Range(0, 1)] public float keepSpeedOnCollision;
+
+    public float bonusSpeed;
+    public float maxbonusSpeed;
+
+    public float beyondMaxSpeed;
+    [NonSerialized] public float beyondMaxSpeedTime;
+    [Range(0.2f, 2)] public float beyondMaxSpeedGainInterval;
+    [Range(0.2f, 2)] public float beyondMaxSpeedLoseInterval;
+
+    public float finalSpeed;
 
     [Header("HandlingValues")]
-    [SerializeField] private float turningSpeed;
-    [SerializeField] private float baseDriftTurningSpeed;
-    [SerializeField] private float minDriftTurningSpeed;
-    [SerializeField] private float maxDriftTurningSpeed;
+    public float turningSpeed;
+    public float baseDriftTurningSpeed;
+    public float minDriftTurningSpeed;
+    public float maxDriftTurningSpeed;
     private float baseTurningSpeed;
 
-    [SerializeField] [Range(0, 10f)] private float driftFactor;
+    [Range(0, 10f)] public float driftFactor;
     private float baseDriftFactor;
 
-    [SerializeField] private bool drifting;
-    [SerializeField] private bool driftingLeft;
+    public bool drifting;
+    public bool driftingLeft;
 
-    [SerializeField] private float driftime;
-    [SerializeField] private float maxDrifttime;
-    [SerializeField] private bool getDriftBoost;
-    [SerializeField] private int driftBoost;
+    public float driftime;
+    public float maxDrifttime;
+    public bool getDriftBoost;
+    public int driftBoost;
 
-    [Space]
-    [SerializeField] float speed;
 
-    private Quaternion playerRotation;
+    [NonSerialized] public Quaternion playerRotation;
+    [NonSerialized] public float XAirRotation;
 
-    [SerializeField] private bool isGrounded;
-    [SerializeField] private float currentGroundAngle;
-    private Vector3 groundVector;
-    [SerializeField] private LayerMask groundCheckLayer;
+    public float currentGroundAngle;
+    [NonSerialized] public Vector3 groundVector;
+    public LayerMask groundCheckLayer;
 
+
+    [NonSerialized] public PlayerMovement playerMovement = new PlayerMovement();
+
+    public float BonusSpeed
+    {
+        get { return bonusSpeed; }
+        set { bonusSpeed = Math.Min(Math.Max(0, value), maxbonusSpeed); }
+    }
 
     public States state;
 
     public enum States
     {
-        normalMovement,
+        groundMovement,
+        airMovement,
+        airIntoGround,
     }
     private void Awake()
     {
@@ -66,9 +95,13 @@ public class Player : MonoBehaviour
         moveHotkey = controls.Player.Move;
 
         rb = GetComponent<Rigidbody>();
+        playerCollider = GetComponent<BoxCollider>();
+        ChildTransform = transform.GetChild(0).transform;
 
         baseDriftFactor = driftFactor;
         baseTurningSpeed = turningSpeed;
+
+        playerMovement.player = this;
 
         StartCoroutine(LateFixedUpdate());
 
@@ -83,25 +116,39 @@ public class Player : MonoBehaviour
     {
         switch (state)
         {
-            case States.normalMovement:
-                Acceleration();
-                KillLateralVelocity();
+            case States.groundMovement:
+                playerMovement.GroundMovement();
+                playerMovement.KillLateralVelocity();
+                break;
+            case States.airMovement:
+                playerMovement.AirMovement();
+                break;
+            case States.airIntoGround:
+                playerMovement.AirMovement();
                 break;
         }
     }
     void Update()
     {
-        readMovementInput();
+        ReadMovementInput();
         switch (state)
         {
-            case States.normalMovement:
-                GroundCheck();
-                Drift();
+            case States.groundMovement:
+                playerMovement.GroundCheck();
+                playerMovement.Drift();
+                playerMovement.BeyondMaxSpeed();
+                break;
+            case States.airMovement:
+                playerMovement.AirCheck();
+                break;
+            case States.airIntoGround:
+                playerMovement.GroundCheck();
+                AirIntoGroundTransition();
+                playerMovement.BeyondMaxSpeed();
                 break;
         }
     }
-
-    private void readMovementInput()
+    private void ReadMovementInput()
     {
         moveDirection = moveHotkey.ReadValue<Vector2>();
         if (moveDirection.x > 0) moveDirection.x = 1;
@@ -116,149 +163,30 @@ public class Player : MonoBehaviour
         while (true)
         {
             yield return new WaitForFixedUpdate();
-            if (!drifting) Steering();
-            else DriftSteering();
-        }
-    }
-    private void Acceleration()
-    {
-        if (moveDirection.y == 0)
-        {
-            //Mathf.Lerp(speed, 0, reduceSpeed * Time.fixedDeltaTime);
-            //rb.drag = reduceSpeed;
-            speed = Mathf.Lerp(speed, 0, reduceSpeedIfNoInput * Time.fixedDeltaTime);
-        }
-        else
-        {
-            if (moveDirection.y > 0)
+            switch (state)
             {
-                if (rb.velocity.sqrMagnitude < 0.1f && speed < 1) speed = 1;
-                speed = Mathf.Lerp(speed, maxspeed, Time.fixedDeltaTime * acceleration);
+                case States.groundMovement:
+                    if (!drifting) playerMovement.Steering();
+                    else playerMovement.DriftSteering();
+                    break;
+                case States.airMovement:
+                    playerMovement.AirSteering();
+                    //playerMovement.AirRotation();
+                    break;
+                case States.airIntoGround:
+                    playerMovement.AirSteering();
+                    break;
             }
-
-            else if (moveDirection.y < 0)
-            {
-                if (rb.velocity.sqrMagnitude < 0.1f && speed > 1) speed = -1;
-                speed = Mathf.Lerp(speed, -maxspeed * 0.5f, Time.fixedDeltaTime * (acceleration * 2));
-
-            }
-        }
-        if (GroundCheck())
-        {
-            isGrounded = true;
-            rb.AddForce(Vector3.ProjectOnPlane(transform.forward, groundVector).normalized * speed, ForceMode.Force);
-            rb.AddForce(-transform.up * 3, ForceMode.Force);
-        }
-        else
-        {
-            isGrounded = false;
-            rb.AddForce(transform.forward * speed, ForceMode.Force);
-            rb.AddForce(-Vector3.up * 10, ForceMode.Force);
-        }
-
-    }
-    void KillLateralVelocity()
-    {
-        if (moveDirection.y > 0) rb.velocity = Vector3.Lerp(rb.velocity.normalized, transform.forward, driftFactor * Time.fixedDeltaTime) * rb.velocity.magnitude;
-        else if (moveDirection.y < 0) rb.velocity = Vector3.Lerp(rb.velocity.normalized, -transform.forward, driftFactor * Time.fixedDeltaTime) * rb.velocity.magnitude;
-
-        //Vector3 forwardVelocity = transform.forward * speed;
-        //Vector3 lateralVelocity = transform.right * Vector3.Dot(rb.velocity, transform.right);
-        //rb.velocity = forwardVelocity + lateralVelocity * driftfactor;
-    }
-
-    private void Steering()
-    {
-        float rotation = 0;
-        //if (speed > 1 || speed < -1)
-        {
-
-            if (moveDirection.x > 0) rotation = turningSpeed;
-            else if (moveDirection.x < 0) rotation = -turningSpeed;
-
-            playerRotation = Quaternion.Euler(transform.eulerAngles.x, transform.eulerAngles.y + rotation, transform.eulerAngles.z);
-            rb.MoveRotation(playerRotation);
-
-            //float angle = Mathf.SmoothDampAngle(transform.eulerAngles.y, transform.eulerAngles.y + rotation, ref angleref, 0.1f);
-            //transform.rotation = Quaternion.Euler(0, angle, 0);
-
-            //Vector3 newRotation = new Vector3(0, rotation, 0);
-            //Quaternion deltaRotation = Quaternion.Euler(newRotation * Time.fixedDeltaTime);
-            //rb.MoveRotation(rb.rotation * deltaRotation);
-
-
-            //transform.Rotate(Vector3.up * rotation);
-
-            //transform.rotation = Quaternion.RotateTowards(transform.rotation, playerRotation, rotationTest * Time.deltaTime);
-
-            //transform.rotation = Quaternion.Lerp(transform.rotation, playerRotation, rotationTest * Time.fixedDeltaTime);
+            
         }
     }
-    private void DriftSteering()
-    {
-        float rotation;
-        if (driftingLeft)
-        {
-            if (moveDirection.x > 0) rotation = maxDriftTurningSpeed;
-            else if (moveDirection.x < 0) rotation = minDriftTurningSpeed;
-            else rotation = baseDriftTurningSpeed;
-        }
-        else
-        {
-            if (moveDirection.x > 0) rotation = minDriftTurningSpeed;
-            else if (moveDirection.x < 0) rotation = maxDriftTurningSpeed;
-            else rotation = baseDriftTurningSpeed;
 
-            rotation *= -1;
-        }
-
-        playerRotation = Quaternion.Euler(0, transform.eulerAngles.y + rotation, 0);
-        rb.MoveRotation(playerRotation);
-    }
     private void OnCollisionEnter(Collision collision)
     {
         //Debug.Log("reduce speed");
         //speed *= keepSpeedOnCollision;
     }
-    private void Drift()
-    {
-        if (controls.Player.Drift.WasPerformedThisFrame() && moveDirection.x != 0 && speed > 3)
-        {
-            if (moveDirection.x > 0) driftingLeft = true;
-            else if (moveDirection.x < 0) driftingLeft = false;
-            drifting = true;
-            driftFactor = 0.1f;
-        }
-
-        if (controls.Player.Drift.WasReleasedThisFrame())
-        {
-            drifting = false;
-            driftime = 0;
-
-            if (getDriftBoost)
-            {
-                speed += driftBoost;
-                getDriftBoost = false;
-            }
-
-            StopCoroutine(nameof(ChangeDriftfactor));
-            StartCoroutine(ChangeDriftfactor());
-        }
-
-        DriftTimerUpdate();
-    }
-    private void DriftTimerUpdate()
-    {
-        if (drifting)
-        {
-            driftime += Time.deltaTime;
-            if (driftime > maxDrifttime)
-            {
-                getDriftBoost = true;
-            }
-        }
-    }
-    private IEnumerator ChangeDriftfactor()
+    public IEnumerator ChangeDriftfactor()
     {
         while (driftFactor < baseDriftFactor - 0.2f)
         {
@@ -268,15 +196,29 @@ public class Player : MonoBehaviour
         }
         driftFactor = baseDriftFactor;
     }
-    private bool GroundCheck()
+    public void SwitchToGroundState()
     {
-        if (Physics.BoxCast(transform.position + transform.up * 0.3f, transform.localScale * 0.5f, -transform.up, out RaycastHit hit, transform.rotation, 5f, groundCheckLayer))
+        state = States.groundMovement;
+    }
+    public void SwitchToAirState()
+    {
+        XAirRotation = 0;
+        drifting = false;
+        driftime = 0;
+        state = States.airMovement;
+    }
+    public void SwitchAirIntoGround()
+    {
+        airIntoGroundTime = 0;
+        state = States.airIntoGround;
+    }
+    private void AirIntoGroundTransition()
+    {
+        airIntoGroundTime += Time.deltaTime;
+        if(airIntoGroundTime > 0.1f)
         {
-            currentGroundAngle = Vector3.Angle(Vector3.up, hit.normal);
-            groundVector = hit.normal;
-            return true;
+            SwitchToGroundState();
         }
-        return false;
     }
 
 }
